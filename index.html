@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NFL Live Scoreboard</title>
+  <title>NBA Smart Scoreboard</title>
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
       max-width: 680px;
-      margin: 2rem auto;
+      margin: 1.5rem auto;
       padding: 0 1rem;
       background: #111317;
       color: #f3f4f6;
@@ -17,7 +17,11 @@
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.1rem;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin: 0;
     }
     .meta {
       font-size: 0.85rem;
@@ -30,11 +34,37 @@
       padding: 0.9rem 1.1rem;
       margin-bottom: 0.75rem;
     }
+    .game.hot {
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      gap: 0.5rem;
+    }
     .status {
       font-size: 0.8rem;
       font-weight: 600;
       color: #60a5fa;
-      margin-bottom: 0.5rem;
+    }
+    .status.live {
+      color: #34d399;
+    }
+    .status.post {
+      color: #9ca3af;
+    }
+    .badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      background: rgba(245, 158, 11, 0.16);
+      color: #fbbf24;
     }
     .team-row {
       display: flex;
@@ -46,6 +76,10 @@
       display: flex;
       gap: 0.5rem;
       align-items: baseline;
+    }
+    .team-name.winner {
+      font-weight: 700;
+      color: #ffffff;
     }
     .record {
       font-size: 0.85rem;
@@ -67,25 +101,118 @@
 </head>
 <body>
   <header>
-    <h1>NFL Scoreboard</h1>
+    <h1>NBA Scoreboard</h1>
     <div class="meta" id="last-updated">Loading...</div>
   </header>
   <main id="scoreboard"></main>
 
   <script>
-    const ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard";
+    const ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
     const POLL_INTERVAL_MS = 60_000;
 
     const scoreboardEl = document.getElementById("scoreboard");
     const lastUpdatedEl = document.getElementById("last-updated");
 
-    function getOverallRecord(competitor) {
+    function getRecordInfo(competitor) {
       const records = competitor.records || [];
       const overall = records.find((r) => r.type === "total" || r.name === "overall");
-      return overall?.summary ? `(${overall.summary})` : "";
+      const summary = overall?.summary || "";
+      const match = summary.match(/^(\d+)-(\d+)/);
+      if (!match) {
+        return { summary, winPct: 0.5 };
+      }
+      const wins = Number(match[1]);
+      const losses = Number(match[2]);
+      const total = wins + losses;
+      return {
+        summary,
+        winPct: total > 0 ? wins / total : 0.5
+      };
     }
 
-    function renderCompetitorRow(competitor) {
+    function parseClockSeconds(displayClock) {
+      if (!displayClock) return 720;
+      const parts = String(displayClock).split(":");
+      if (parts.length === 2) {
+        return Number(parts[0]) * 60 + Number(parts[1]);
+      }
+      const secs = Number(displayClock);
+      return Number.isFinite(secs) ? secs : 720;
+    }
+
+    // Higher score = shown higher on the page
+    function scoreGameInterest(event) {
+      const state = event.status?.type?.state; // "in" | "pre" | "post"
+      const comp = event.competitions?.[0];
+      const competitors = comp?.competitors || [];
+      if (competitors.length < 2) return -9999;
+
+      const recA = getRecordInfo(competitors[0]);
+      const recB = getRecordInfo(competitors[1]);
+      const combinedWinPct = (recA.winPct + recB.winPct) / 2; // 0.0 to 1.0
+      const recordBonus = combinedWinPct * 35; // Up to +35 pts for top teams
+
+      if (state === "in") {
+        const period = Number(event.status?.period || 1);
+        const secondsLeftInPeriod = parseClockSeconds(event.status?.displayClock);
+        const scoreA = Number(competitors[0].score || 0);
+        const scoreB = Number(competitors[1].score || 0);
+        const margin = Math.abs(scoreA - scoreB);
+
+        // Estimate total regulation seconds remaining (0 in OT)
+        const regPeriodsLeft = Math.max(0, 4 - period);
+        const totalSecondsLeft = period >= 5 ? 0 : regPeriodsLeft * 720 + secondsLeftInPeriod;
+
+        // Time urgency: ramps up sharply in the 4th quarter and OT
+        let timeScore = 0;
+        if (period >= 5) {
+          timeScore = 65; // Overtime
+        } else if (period === 4) {
+          // 25 pts at start of 4th, up to 55 pts in the final seconds
+          timeScore = 25 + ((720 - Math.min(720, secondsLeftInPeriod)) / 720) * 30;
+        } else {
+          // 0 to 20 pts across Q1-Q3
+          timeScore = ((2880 - totalSecondsLeft) / 2880) * 20;
+        }
+
+        // Closeness: 50 pts if tied, tapering down as margin grows
+        const closenessScore = Math.max(0, 50 - margin * 2.5);
+
+        // Crunch-time multiplier when close late in the 4th or OT
+        const isCrunchTime = period >= 4 && secondsLeftInPeriod <= 300 && margin <= 10;
+        const crunchBonus = isCrunchTime ? 30 : 0;
+
+        return {
+          priority: 1000 + timeScore + closenessScore + crunchBonus + recordBonus,
+          isHot: isCrunchTime || (period >= 5 && margin <= 8),
+          badgeText: period >= 5 ? "OT Thriller" : isCrunchTime ? "Crunch Time" : ""
+        };
+      }
+
+      if (state === "pre") {
+        // Upcoming games sit below live games, sorted by team records then tipoff time
+        const tipoff = Date.parse(event.date || "") || 0;
+        const timeTiebreaker = tipoff ? -tipoff / 1e11 : 0;
+        return {
+          priority: 500 + recordBonus + timeTiebreaker,
+          isHot: false,
+          badgeText: ""
+        };
+      }
+
+      // Finished ("post") games at the bottom, close finishes + good teams higher
+      const finalMargin = Math.abs(
+        Number(competitors[0].score || 0) - Number(competitors[1].score || 0)
+      );
+      const closeFinishBonus = Math.max(0, 15 - finalMargin);
+      return {
+        priority: 100 + recordBonus + closeFinishBonus,
+        isHot: false,
+        badgeText: ""
+      };
+    }
+
+    function renderCompetitorRow(competitor, isFinal) {
       const row = document.createElement("div");
       row.className = "team-row";
 
@@ -93,11 +220,16 @@
       info.className = "team-info";
 
       const name = document.createElement("span");
+      name.className = "team-name";
+      if (isFinal && competitor.winner) {
+        name.classList.add("winner");
+      }
       name.textContent = competitor.team?.displayName || "TBD";
 
+      const { summary } = getRecordInfo(competitor);
       const record = document.createElement("span");
       record.className = "record";
-      record.textContent = getOverallRecord(competitor);
+      record.textContent = summary ? `(${summary})` : "";
 
       info.append(name, record);
 
@@ -115,29 +247,50 @@
       if (!events.length) {
         const empty = document.createElement("p");
         empty.className = "meta";
-        empty.textContent = "No NFL games found for this scoreboard window.";
+        empty.textContent = "No NBA games scheduled today.";
         scoreboardEl.appendChild(empty);
         return;
       }
 
-      for (const event of events) {
+      const ranked = events
+        .map((event) => ({ event, meta: scoreGameInterest(event) }))
+        .sort((a, b) => b.meta.priority - a.meta.priority);
+
+      for (const { event, meta } of ranked) {
         const comp = event.competitions?.[0];
         const competitors = comp?.competitors || [];
         if (competitors.length < 2) continue;
 
-        // ESPN typically lists away first and home second, but sorting explicitly is safer
         const away = competitors.find((c) => c.homeAway === "away") || competitors[0];
         const home = competitors.find((c) => c.homeAway === "home") || competitors[1];
+        const state = event.status?.type?.state;
+        const isFinal = state === "post";
 
         const card = document.createElement("article");
-        card.className = "game";
+        card.className = meta.isHot ? "game hot" : "game";
+
+        const header = document.createElement("div");
+        header.className = "card-header";
 
         const status = document.createElement("div");
-        status.className = "status";
-        const detail = event.status?.type?.shortDetail || event.status?.type?.description || "Scheduled";
-        status.textContent = detail;
+        status.className = `status ${state || ""}`;
+        status.textContent =
+          event.status?.type?.shortDetail || event.status?.type?.description || "Scheduled";
 
-        card.append(status, renderCompetitorRow(away), renderCompetitorRow(home));
+        header.appendChild(status);
+
+        if (meta.badgeText) {
+          const badge = document.createElement("span");
+          badge.className = "badge";
+          badge.textContent = meta.badgeText;
+          header.appendChild(badge);
+        }
+
+        card.append(
+          header,
+          renderCompetitorRow(away, isFinal),
+          renderCompetitorRow(home, isFinal)
+        );
         scoreboardEl.appendChild(card);
       }
     }
@@ -155,7 +308,7 @@
         scoreboardEl.textContent = "";
         const errBox = document.createElement("div");
         errBox.className = "error";
-        errBox.textContent = `Couldn't load scores: ${err.message}`;
+        errBox.textContent = `Couldn't load NBA scores: ${err.message}`;
         scoreboardEl.appendChild(errBox);
         lastUpdatedEl.textContent = "Update failed";
       }
@@ -166,3 +319,4 @@
   </script>
 </body>
 </html>
+
