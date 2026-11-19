@@ -655,6 +655,9 @@
 
       const stateOrder = { in: 0, pre: 1, post: 2 };
 
+      const stateOrder = { in: 0, pre: 1, post: 2 };
+      const hasLiveGames = allGames.some((g) => g.state === "in");
+
       const favGames = visible
         .filter((g) => g.favMatch !== null)
         .sort((a, b) => {
@@ -666,7 +669,15 @@
 
       const otherGames = visible
         .filter((g) => g.favMatch === null)
-        .sort((a, b) => b.priority - a.priority);
+        .sort((a, b) => {
+          // When no games are live anywhere, sort upcoming games by soonest start time
+          if (!hasLiveGames && a.state === "pre" && b.state === "pre") {
+            const timeA = Date.parse(a.event.date || "") || Number.MAX_SAFE_INTEGER;
+            const timeB = Date.parse(b.event.date || "") || Number.MAX_SAFE_INTEGER;
+            if (timeA !== timeB) return timeA - timeB;
+          }
+          return b.priority - a.priority;
+        });
 
       if (favGames.length > 0) {
         const favHeading = document.createElement("div");
