@@ -225,6 +225,7 @@
       favoriteTeams: [
         { league: "nfl",   match: ["Minnesota Vikings"],      label: "Vikings" },
         { league: "nba",   match: ["Minnesota Timberwolves"], label: "Timberwolves" },
+        { league: "nhl",   match: ["Minnesota Wild"],         label: "Wild" },
         { league: "ncaam", match: ["Arizona Wildcats"],       label: "Arizona MBB" },
         { league: "ncaaf", match: ["Arizona Wildcats"],       label: "Arizona FB" },
         { league: "ncaaw", match: ["Arizona Wildcats"],       label: "Arizona WBB" },
@@ -243,6 +244,12 @@
           label: "NBA",
           type: "basketball4",
           urls: ["https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"]
+        },
+        {
+          id: "nhl",
+          label: "NHL",
+          type: "hockey",
+          urls: ["https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard"]
         },
         {
           id: "ncaam",
@@ -300,15 +307,20 @@
     const lastUpdatedEl = document.getElementById("last-updated");
     const refreshBtn = document.getElementById("refresh-btn");
 
-    function getRecordInfo(competitor) {
+    function getRecordInfo(competitor, leagueType) {
       const records = competitor.records || [];
       const overall = records.find((r) => r.type === "total" || r.name === "overall");
       const summary = overall?.summary || "";
       const parts = summary.split("-").map(Number);
       if (parts.length >= 2 && parts.every((n) => Number.isFinite(n))) {
-        const wins = parts[0];
         const total = parts.reduce((sum, n) => sum + n, 0);
-        return { summary, winPct: total > 0 ? wins / total : 0.5 };
+        if (total <= 0) return { summary, winPct: 0.5 };
+        // NHL points percentage: (2*W + OTL) / (2*GP)
+        if (leagueType === "hockey" && parts.length === 3) {
+          const ptsPct = (parts[0] * 2 + parts[2]) / (total * 2);
+          return { summary, winPct: ptsPct };
+        }
+        return { summary, winPct: parts[0] / total };
       }
       return { summary, winPct: 0.5 };
     }
@@ -360,8 +372,8 @@
       const favMatch = findFavoriteTeamMatch(league.id, competitors);
       const sportPreferenceBonus = (CONFIG.leagues.length - leagueIndex) * 2.5;
 
-      const recA = getRecordInfo(competitors[0] || {});
-      const recB = getRecordInfo(competitors[1] || {});
+      const recA = getRecordInfo(competitors[0] || {}, league.type);
+      const recB = getRecordInfo(competitors[1] || {}, league.type);
       const rankA = competitors[0]?.curatedRank?.current;
       const rankB = competitors[1]?.curatedRank?.current;
       const rankBoostA = rankA && rankA <= 25 ? (26 - rankA) / 100 : 0;
@@ -397,6 +409,21 @@
           closenessScore = margin === 0 ? 50 : margin === 1 ? 42 : margin === 2 ? 18 : 0;
           isCrunchTime = (minute >= 75 || period >= 3) && margin <= 1;
           badgeText = period >= 3 ? "Extra Time" : isCrunchTime ? "Late Drama" : "";
+        } else if (league.type === "hockey") {
+          const isOT = period > 3;
+          const isThird = period === 3;
+          if (isOT) {
+            timeScore = 65;
+          } else if (isThird) {
+            const elapsedRatio = (1200 - Math.min(1200, clockSecs)) / 1200;
+            timeScore = 25 + elapsedRatio * 30;
+          } else {
+            const elapsedSecs = (period - 1) * 1200 + (1200 - Math.min(1200, clockSecs));
+            timeScore = (elapsedSecs / 3600) * 22;
+          }
+          closenessScore = margin === 0 ? 50 : margin === 1 ? 44 : margin === 2 ? 20 : 0;
+          isCrunchTime = (isThird && clockSecs <= 300 && margin <= 1) || isOT;
+          badgeText = period >= 5 ? "Shootout" : isOT ? "OT Thriller" : isCrunchTime ? "Crunch Time" : "";
         } else {
           const regPeriods = league.type === "basketball2" ? 2 : 4;
           const periodLength =
@@ -458,7 +485,7 @@
       const finalMargin = Math.abs(
         Number(competitors[0]?.score || 0) - Number(competitors[1]?.score || 0)
       );
-      const closeLimit = league.type === "soccer" ? 1 : 12;
+      const closeLimit = league.type === "soccer" || league.type === "hockey" ? 1 : 12;
       const closeFinishBonus = finalMargin <= closeLimit ? 12 : 0;
 
       return {
@@ -490,7 +517,7 @@
       }
     }
 
-    function renderCompetitorRow(competitor, isFinal, favTeamId) {
+    function renderCompetitorRow(competitor, isFinal, favTeamId, leagueType) {
       const row = document.createElement("div");
       row.className = "team-row";
 
@@ -511,7 +538,7 @@
       if (favTeamId && competitor.team?.id === favTeamId) name.classList.add("fav-team");
       name.textContent = competitor.team?.displayName || "TBD";
 
-      const { summary } = getRecordInfo(competitor);
+      const { summary } = getRecordInfo(competitor, leagueType);
       const record = document.createElement("span");
       record.className = "record";
       record.textContent = summary ? `(${summary})` : "";
@@ -591,8 +618,8 @@
 
       card.append(
         header,
-        renderCompetitorRow(first, isFinal, favMatch?.teamId),
-        renderCompetitorRow(second, isFinal, favMatch?.teamId)
+        renderCompetitorRow(first, isFinal, favMatch?.teamId, league.type),
+        renderCompetitorRow(second, isFinal, favMatch?.teamId, league.type)
       );
       return card;
     }
