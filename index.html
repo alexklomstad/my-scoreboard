@@ -10,7 +10,6 @@
       --card: #181c23;
       --card-fav: #1b2230;
       --border: #2a303c;
-      --border-fav: #3b82f6;
       --text: #f3f4f6;
       --muted: #9ca3af;
       --live: #34d399;
@@ -221,76 +220,78 @@
   <main id="dashboard"></main>
 
   <script>
-    // =========================================================================
-    // PERSONAL CONFIGURATION (Ordered by priority)
-    // =========================================================================
     const CONFIG = {
       pollIntervalMs: 60_000,
-
-      // Favorite teams in priority order (index 0 = highest priority)
       favoriteTeams: [
-        { league: "nfl",   match: ["Minnesota Vikings"],   label: "Vikings" },
+        { league: "nfl",   match: ["Minnesota Vikings"],      label: "Vikings" },
         { league: "nba",   match: ["Minnesota Timberwolves"], label: "Timberwolves" },
-        { league: "ncaam", match: ["Arizona Wildcats"],    label: "Arizona MBB" },
-        { league: "ncaaf", match: ["Arizona Wildcats"],    label: "Arizona FB" },
-        { league: "ncaaw", match: ["Arizona Wildcats"],    label: "Arizona WBB" },
-        { league: "mls",   match: ["Portland Timbers"],    label: "Timbers" },
-        { league: "epl",   match: ["Liverpool"],           label: "Liverpool" }
+        { league: "ncaam", match: ["Arizona Wildcats"],       label: "Arizona MBB" },
+        { league: "ncaaf", match: ["Arizona Wildcats"],       label: "Arizona FB" },
+        { league: "ncaaw", match: ["Arizona Wildcats"],       label: "Arizona WBB" },
+        { league: "mls",   match: ["Portland Timbers"],       label: "Timbers" },
+        { league: "epl",   match: ["Liverpool"],              label: "Liverpool" }
       ],
-
-      // Favorite leagues in priority order (index 0 = highest sport tiebreaker)
       leagues: [
         {
           id: "nfl",
           label: "NFL",
           type: "football",
-          url: "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+          urls: ["https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"]
         },
         {
           id: "nba",
           label: "NBA",
           type: "basketball4",
-          url: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+          urls: ["https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"]
         },
         {
           id: "ncaam",
           label: "NCAAM",
           type: "basketball2",
-          url: "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?groups=50&limit=300"
+          rankedOrFavOnly: true,
+          urls: [
+            "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+            "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/teams/12"
+          ]
         },
         {
           id: "ncaaf",
           label: "NCAAF",
           type: "football",
-          url: "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300"
+          rankedOrFavOnly: true,
+          urls: [
+            "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
+            "https://site.api.espn.com/apis/site/v2/sports/football/college-football/teams/12"
+          ]
         },
         {
           id: "ncaaw",
           label: "NCAAW",
           type: "basketball2",
-          url: "https://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball/scoreboard?groups=50&limit=300"
+          rankedOrFavOnly: true,
+          urls: [
+            "https://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball/scoreboard",
+            "https://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball/teams/12"
+          ]
         },
         {
           id: "mls",
           label: "MLS",
           type: "soccer",
-          url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard"
+          urls: ["https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard"]
         },
         {
           id: "epl",
           label: "Premier League",
           type: "soccer",
-          url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"
+          urls: ["https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"]
         }
       ]
     };
 
-    // =========================================================================
-    // STATE & DOM REFERENCES
-    // =========================================================================
     let activeFilter = "all";
-    let cachedGames = [];
-    let failedLeagues = [];
+    const gamesByLeague = new Map();
+    const failedLeagues = new Set();
     let pollTimer = null;
 
     const filterBarEl = document.getElementById("filter-bar");
@@ -299,23 +300,15 @@
     const lastUpdatedEl = document.getElementById("last-updated");
     const refreshBtn = document.getElementById("refresh-btn");
 
-    // =========================================================================
-    // HELPERS: RECORDS, CLOCKS, TEAM MATCHING
-    // =========================================================================
     function getRecordInfo(competitor) {
       const records = competitor.records || [];
       const overall = records.find((r) => r.type === "total" || r.name === "overall");
       const summary = overall?.summary || "";
-
-      // Handles W-L, W-L-T (NFL), and W-D-L (Soccer)
       const parts = summary.split("-").map(Number);
       if (parts.length >= 2 && parts.every((n) => Number.isFinite(n))) {
         const wins = parts[0];
         const total = parts.reduce((sum, n) => sum + n, 0);
-        return {
-          summary,
-          winPct: total > 0 ? wins / total : 0.5
-        };
+        return { summary, winPct: total > 0 ? wins / total : 0.5 };
       }
       return { summary, winPct: 0.5 };
     }
@@ -335,7 +328,6 @@
       for (let i = 0; i < CONFIG.favoriteTeams.length; i++) {
         const fav = CONFIG.favoriteTeams[i];
         if (fav.league !== leagueId) continue;
-
         for (const comp of competitors) {
           const names = [
             comp.team?.displayName,
@@ -344,37 +336,30 @@
           ]
             .filter(Boolean)
             .map((s) => s.toLowerCase());
-
           const isMatch = fav.match.some((needle) =>
             names.some((n) => n === needle.toLowerCase() || n.includes(needle.toLowerCase()))
           );
-
           if (isMatch) {
-            return {
-              favIndex: i,
-              label: fav.label,
-              teamId: comp.team?.id
-            };
+            return { favIndex: i, label: fav.label, teamId: comp.team?.id };
           }
         }
       }
       return null;
     }
 
-    // =========================================================================
-    // EXCITEMENT & PRIORITY SCORING ENGINE
-    // =========================================================================
-    function evaluateGame(event, league, leagueIndex) {
+    function hasRankedTeam(competitors) {
+      return competitors.some((c) => {
+        const rank = c.curatedRank?.current;
+        return Number.isFinite(rank) && rank >= 1 && rank <= 25;
+      });
+    }
+        function evaluateGame(event, league, leagueIndex) {
       const comp = event.competitions?.[0];
       const competitors = comp?.competitors || [];
-      const state = event.status?.type?.state || "pre"; // "in" | "pre" | "post"
-
+      const state = event.status?.type?.state || "pre";
       const favMatch = findFavoriteTeamMatch(league.id, competitors);
-
-      // Sport preference tiebreaker (higher for leagues earlier in CONFIG.leagues)
       const sportPreferenceBonus = (CONFIG.leagues.length - leagueIndex) * 2.5;
 
-      // Team quality bonus from records + AP/CFP rank if present
       const recA = getRecordInfo(competitors[0] || {});
       const recB = getRecordInfo(competitors[1] || {});
       const rankA = competitors[0]?.curatedRank?.current;
@@ -401,7 +386,6 @@
         let badgeText = "";
 
         if (league.type === "soccer") {
-          // Soccer clock counts up in minutes (0-90+)
           const minute = Math.floor(clockSecs / 60) || period * 45;
           if (period >= 3 || minute >= 90) {
             timeScore = 60;
@@ -414,7 +398,6 @@
           isCrunchTime = (minute >= 75 || period >= 3) && margin <= 1;
           badgeText = period >= 3 ? "Extra Time" : isCrunchTime ? "Late Drama" : "";
         } else {
-          // Basketball (4 quarters or 2 halves) & Football (4 quarters)
           const regPeriods = league.type === "basketball2" ? 2 : 4;
           const periodLength =
             league.type === "basketball2" ? 1200 : league.type === "football" ? 900 : 720;
@@ -435,12 +418,10 @@
           }
 
           if (league.type === "football") {
-            // 1-score game (<= 8 pts) vs 2-score game (<= 16 pts)
             closenessScore =
               margin <= 3 ? 50 : margin <= 8 ? 44 : margin <= 14 ? 24 : margin <= 17 ? 10 : 0;
             isCrunchTime = (isFinalRegPeriod && clockSecs <= 300 && margin <= 8) || (isOT && margin <= 8);
           } else {
-            // Basketball
             closenessScore = Math.max(0, 50 - margin * 2.5);
             isCrunchTime = (isFinalRegPeriod && clockSecs <= 300 && margin <= 10) || (isOT && margin <= 10);
           }
@@ -449,7 +430,6 @@
         }
 
         const crunchBonus = isCrunchTime ? 30 : 0;
-
         return {
           event,
           league,
@@ -475,7 +455,6 @@
         };
       }
 
-      // Finished ("post")
       const finalMargin = Math.abs(
         Number(competitors[0]?.score || 0) - Number(competitors[1]?.score || 0)
       );
@@ -493,9 +472,6 @@
       };
     }
 
-    // =========================================================================
-    // RENDERING
-    // =========================================================================
     function renderFilters() {
       filterBarEl.textContent = "";
       const items = [{ id: "all", label: "All Sports" }, ...CONFIG.leagues];
@@ -544,7 +520,11 @@
 
       const score = document.createElement("span");
       score.className = "score";
-      score.textContent = competitor.score ?? "-";
+      const rawScore = competitor.score;
+      score.textContent =
+        typeof rawScore === "object" && rawScore !== null
+          ? rawScore.displayValue ?? "-"
+          : rawScore ?? "-";
 
       row.append(info, score);
       return row;
@@ -556,7 +536,6 @@
       const competitors = comp?.competitors || [];
       if (competitors.length < 2) return null;
 
-      // Soccer convention lists home first; US sports list away first
       const first =
         league.type === "soccer"
           ? competitors.find((c) => c.homeAway === "home") || competitors[0]
@@ -620,5 +599,173 @@
 
     function renderDashboard() {
       warningsEl.textContent = "";
-      if (failedLeagues.length >
+      if (failedLeagues.size > 0) {
+        const warn = document.createElement("div");
+        warn.className = "warning-banner";
+        warn.textContent = `Could not load: ${Array.from(failedLeagues).join(", ")}`;
+        warningsEl.appendChild(warn);
+      }
 
+      dashboardEl.textContent = "";
+
+      const allGames = Array.from(gamesByLeague.values()).flat();
+      const visible =
+        activeFilter === "all"
+          ? allGames
+          : allGames.filter((g) => g.league.id === activeFilter);
+
+      if (!visible.length) {
+        const empty = document.createElement("p");
+        empty.className = "meta";
+        empty.textContent =
+          gamesByLeague.size === 0
+            ? "Loading games..."
+            : "No games on today's scoreboard for this selection.";
+        dashboardEl.appendChild(empty);
+        return;
+      }
+
+      const stateOrder = { in: 0, pre: 1, post: 2 };
+
+      const favGames = visible
+        .filter((g) => g.favMatch !== null)
+        .sort((a, b) => {
+          if (a.favMatch.favIndex !== b.favMatch.favIndex) {
+            return a.favMatch.favIndex - b.favMatch.favIndex;
+          }
+          return (stateOrder[a.state] ?? 9) - (stateOrder[b.state] ?? 9);
+        });
+
+      const otherGames = visible
+        .filter((g) => g.favMatch === null)
+        .sort((a, b) => b.priority - a.priority);
+
+      if (favGames.length > 0) {
+        const favHeading = document.createElement("div");
+        favHeading.className = "section-title";
+        favHeading.textContent = "Your Teams";
+        dashboardEl.appendChild(favHeading);
+
+        for (const item of favGames) {
+          const card = createGameCard(item);
+          if (card) dashboardEl.appendChild(card);
+        }
+      }
+
+      if (otherGames.length > 0) {
+        const otherHeading = document.createElement("div");
+        otherHeading.className = "section-title";
+        otherHeading.textContent = favGames.length > 0 ? "Top Games" : "Games";
+        dashboardEl.appendChild(otherHeading);
+
+        for (const item of otherGames) {
+          const card = createGameCard(item);
+          if (card) dashboardEl.appendChild(card);
+        }
+      }
+    }
+
+    function extractEventsFromPayload(data) {
+      if (Array.isArray(data?.events)) {
+        return data.events;
+      }
+      if (Array.isArray(data?.team?.nextEvent)) {
+        const now = Date.now();
+        return data.team.nextEvent.filter((ev) => {
+          const t = Date.parse(ev.date || "");
+          return Number.isFinite(t) && Math.abs(t - now) <= 36 * 3600 * 1000;
+        });
+      }
+      return [];
+    }
+
+    async function fetchLeague(league, leagueIndex) {
+      try {
+        const results = await Promise.allSettled(
+          league.urls.map(async (url) => {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+          })
+        );
+
+        const eventMap = new Map();
+        let anySuccess = false;
+
+        for (const result of results) {
+          if (result.status !== "fulfilled") continue;
+          anySuccess = true;
+          for (const ev of extractEventsFromPayload(result.value)) {
+            if (ev?.id && !eventMap.has(ev.id)) {
+              eventMap.set(ev.id, ev);
+            }
+          }
+        }
+
+        if (!anySuccess) {
+          throw new Error("All endpoints failed");
+        }
+
+        const evaluated = [];
+        for (const ev of eventMap.values()) {
+          const item = evaluateGame(ev, league, leagueIndex);
+          if (league.rankedOrFavOnly) {
+            const competitors = ev.competitions?.[0]?.competitors || [];
+            if (!item.favMatch && !hasRankedTeam(competitors)) continue;
+          }
+          evaluated.push(item);
+        }
+
+        failedLeagues.delete(league.id);
+        gamesByLeague.set(league.id, evaluated);
+      } catch (err) {
+        failedLeagues.add(league.label);
+      } finally {
+        renderDashboard();
+      }
+    }
+
+    async function refreshAll() {
+      lastUpdatedEl.textContent = "Updating...";
+      await Promise.all(
+        CONFIG.leagues.map((league, idx) => fetchLeague(league, idx))
+      );
+      lastUpdatedEl.textContent = `Updated ${new Date().toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit"
+      })}`;
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          refreshAll();
+        }
+      }, CONFIG.pollIntervalMs);
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        refreshAll();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    });
+
+    refreshBtn.addEventListener("click", refreshAll);
+
+    renderFilters();
+    refreshAll();
+    startPolling();
+  </script>
+</body>
+</html>
