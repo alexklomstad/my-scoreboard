@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NFL Live Scoreboard</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 680px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      background: #111317;
+      color: #f3f4f6;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 1.25rem;
+    }
+    .meta {
+      font-size: 0.85rem;
+      color: #9ca3af;
+    }
+    .game {
+      background: #1c2026;
+      border: 1px solid #2d333b;
+      border-radius: 10px;
+      padding: 0.9rem 1.1rem;
+      margin-bottom: 0.75rem;
+    }
+    .status {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #60a5fa;
+      margin-bottom: 0.5rem;
+    }
+    .team-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.25rem 0;
+    }
+    .team-info {
+      display: flex;
+      gap: 0.5rem;
+      align-items: baseline;
+    }
+    .record {
+      font-size: 0.85rem;
+      color: #9ca3af;
+    }
+    .score {
+      font-size: 1.15rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .error {
+      color: #f87171;
+      background: #2a1618;
+      border: 1px solid #5c2629;
+      padding: 0.85rem 1rem;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>NFL Scoreboard</h1>
+    <div class="meta" id="last-updated">Loading...</div>
+  </header>
+  <main id="scoreboard"></main>
+
+  <script>
+    const ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard";
+    const POLL_INTERVAL_MS = 60_000;
+
+    const scoreboardEl = document.getElementById("scoreboard");
+    const lastUpdatedEl = document.getElementById("last-updated");
+
+    function getOverallRecord(competitor) {
+      const records = competitor.records || [];
+      const overall = records.find((r) => r.type === "total" || r.name === "overall");
+      return overall?.summary ? `(${overall.summary})` : "";
+    }
+
+    function renderCompetitorRow(competitor) {
+      const row = document.createElement("div");
+      row.className = "team-row";
+
+      const info = document.createElement("div");
+      info.className = "team-info";
+
+      const name = document.createElement("span");
+      name.textContent = competitor.team?.displayName || "TBD";
+
+      const record = document.createElement("span");
+      record.className = "record";
+      record.textContent = getOverallRecord(competitor);
+
+      info.append(name, record);
+
+      const score = document.createElement("span");
+      score.className = "score";
+      score.textContent = competitor.score ?? "-";
+
+      row.append(info, score);
+      return row;
+    }
+
+    function renderGames(events) {
+      scoreboardEl.textContent = "";
+
+      if (!events.length) {
+        const empty = document.createElement("p");
+        empty.className = "meta";
+        empty.textContent = "No NFL games found for this scoreboard window.";
+        scoreboardEl.appendChild(empty);
+        return;
+      }
+
+      for (const event of events) {
+        const comp = event.competitions?.[0];
+        const competitors = comp?.competitors || [];
+        if (competitors.length < 2) continue;
+
+        // ESPN typically lists away first and home second, but sorting explicitly is safer
+        const away = competitors.find((c) => c.homeAway === "away") || competitors[0];
+        const home = competitors.find((c) => c.homeAway === "home") || competitors[1];
+
+        const card = document.createElement("article");
+        card.className = "game";
+
+        const status = document.createElement("div");
+        status.className = "status";
+        const detail = event.status?.type?.shortDetail || event.status?.type?.description || "Scheduled";
+        status.textContent = detail;
+
+        card.append(status, renderCompetitorRow(away), renderCompetitorRow(home));
+        scoreboardEl.appendChild(card);
+      }
+    }
+
+    async function refreshScoreboard() {
+      try {
+        const res = await fetch(`${ENDPOINT}?_=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        renderGames(data.events || []);
+        lastUpdatedEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        scoreboardEl.textContent = "";
+        const errBox = document.createElement("div");
+        errBox.className = "error";
+        errBox.textContent = `Couldn't load scores: ${err.message}`;
+        scoreboardEl.appendChild(errBox);
+        lastUpdatedEl.textContent = "Update failed";
+      }
+    }
+
+    refreshScoreboard();
+    setInterval(refreshScoreboard, POLL_INTERVAL_MS);
+  </script>
+</body>
+</html>
