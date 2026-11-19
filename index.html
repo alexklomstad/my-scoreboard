@@ -3,227 +3,536 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NBA Smart Scoreboard</title>
+  <title>My Sports Dashboard</title>
   <style>
+    :root {
+      --bg: #0f1115;
+      --card: #181c23;
+      --card-fav: #1b2230;
+      --border: #2a303c;
+      --border-fav: #3b82f6;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --live: #34d399;
+      --pre: #60a5fa;
+      --hot: #fbbf24;
+    }
+    * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      max-width: 680px;
-      margin: 1.5rem auto;
-      padding: 0 1rem;
-      background: #111317;
-      color: #f3f4f6;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1rem 0.9rem 3rem;
+      background: var(--bg);
+      color: var(--text);
     }
     header {
       display: flex;
       justify-content: space-between;
-      align-items: baseline;
-      margin-bottom: 1.1rem;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.85rem;
     }
     h1 {
-      font-size: 1.4rem;
+      font-size: 1.3rem;
       margin: 0;
     }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
     .meta {
-      font-size: 0.85rem;
-      color: #9ca3af;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    button.refresh-btn {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    button.refresh-btn:active {
+      opacity: 0.75;
+    }
+    .filters {
+      display: flex;
+      gap: 0.4rem;
+      overflow-x: auto;
+      padding-bottom: 0.6rem;
+      margin-bottom: 0.9rem;
+      scrollbar-width: none;
+    }
+    .filters::-webkit-scrollbar { display: none; }
+    .pill {
+      background: var(--card);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.32rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .pill.active {
+      background: #2563eb;
+      border-color: #3b82f6;
+      color: #ffffff;
+    }
+    .section-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin: 1.1rem 0 0.55rem;
     }
     .game {
-      background: #1c2026;
-      border: 1px solid #2d333b;
+      background: var(--card);
+      border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 0.9rem 1.1rem;
-      margin-bottom: 0.75rem;
+      padding: 0.8rem 1rem;
+      margin-bottom: 0.65rem;
+    }
+    .game.fav {
+      background: var(--card-fav);
+      border-color: rgba(59, 130, 246, 0.55);
     }
     .game.hot {
-      border-color: #f59e0b;
-      box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
+      border-color: var(--hot);
+      box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.22);
     }
     .card-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 0.5rem;
       gap: 0.5rem;
+      margin-bottom: 0.45rem;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    .league-tag {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.12rem 0.42rem;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #d1d5db;
     }
     .status {
       font-size: 0.8rem;
       font-weight: 600;
-      color: #60a5fa;
+      color: var(--pre);
     }
-    .status.live {
-      color: #34d399;
-    }
-    .status.post {
-      color: #9ca3af;
+    .status.in { color: var(--live); }
+    .status.post { color: var(--muted); }
+    .badges {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
     }
     .badge {
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.03em;
-      padding: 0.15rem 0.45rem;
+      padding: 0.14rem 0.45rem;
       border-radius: 999px;
-      background: rgba(245, 158, 11, 0.16);
-      color: #fbbf24;
+    }
+    .badge.hot {
+      background: rgba(251, 191, 36, 0.16);
+      color: var(--hot);
+    }
+    .badge.fav {
+      background: rgba(59, 130, 246, 0.22);
+      color: #93c5fd;
     }
     .team-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.25rem 0;
+      padding: 0.24rem 0;
     }
     .team-info {
       display: flex;
-      gap: 0.5rem;
       align-items: baseline;
+      gap: 0.42rem;
+      min-width: 0;
+    }
+    .rank {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #fbbf24;
+    }
+    .team-name {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .team-name.winner {
       font-weight: 700;
       color: #ffffff;
     }
+    .team-name.fav-team {
+      color: #93c5fd;
+      font-weight: 700;
+    }
     .record {
-      font-size: 0.85rem;
-      color: #9ca3af;
+      font-size: 0.82rem;
+      color: var(--muted);
+      white-space: nowrap;
     }
     .score {
-      font-size: 1.15rem;
+      font-size: 1.12rem;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
+      margin-left: 0.6rem;
     }
-    .error {
-      color: #f87171;
-      background: #2a1618;
-      border: 1px solid #5c2629;
-      padding: 0.85rem 1rem;
+    .warning-banner {
+      font-size: 0.8rem;
+      color: #fca5a5;
+      background: rgba(127, 29, 29, 0.35);
+      border: 1px solid rgba(248, 113, 113, 0.35);
       border-radius: 8px;
+      padding: 0.55rem 0.8rem;
+      margin-bottom: 0.8rem;
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>NBA Scoreboard</h1>
-    <div class="meta" id="last-updated">Loading...</div>
+    <h1>Sports Dashboard</h1>
+    <div class="header-right">
+      <span class="meta" id="last-updated">Loading...</span>
+      <button class="refresh-btn" id="refresh-btn" type="button">Refresh</button>
+    </div>
   </header>
-  <main id="scoreboard"></main>
+
+  <nav class="filters" id="filter-bar"></nav>
+  <div id="warnings"></div>
+  <main id="dashboard"></main>
 
   <script>
-    const ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
-    const POLL_INTERVAL_MS = 60_000;
+    // =========================================================================
+    // PERSONAL CONFIGURATION (Ordered by priority)
+    // =========================================================================
+    const CONFIG = {
+      pollIntervalMs: 60_000,
 
-    const scoreboardEl = document.getElementById("scoreboard");
+      // Favorite teams in priority order (index 0 = highest priority)
+      favoriteTeams: [
+        { league: "nfl",   match: ["Minnesota Vikings"],   label: "Vikings" },
+        { league: "nba",   match: ["Minnesota Timberwolves"], label: "Timberwolves" },
+        { league: "ncaam", match: ["Arizona Wildcats"],    label: "Arizona MBB" },
+        { league: "ncaaf", match: ["Arizona Wildcats"],    label: "Arizona FB" },
+        { league: "ncaaw", match: ["Arizona Wildcats"],    label: "Arizona WBB" },
+        { league: "mls",   match: ["Portland Timbers"],    label: "Timbers" },
+        { league: "epl",   match: ["Liverpool"],           label: "Liverpool" }
+      ],
+
+      // Favorite leagues in priority order (index 0 = highest sport tiebreaker)
+      leagues: [
+        {
+          id: "nfl",
+          label: "NFL",
+          type: "football",
+          url: "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+        },
+        {
+          id: "nba",
+          label: "NBA",
+          type: "basketball4",
+          url: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+        },
+        {
+          id: "ncaam",
+          label: "NCAAM",
+          type: "basketball2",
+          url: "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?groups=50&limit=300"
+        },
+        {
+          id: "ncaaf",
+          label: "NCAAF",
+          type: "football",
+          url: "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300"
+        },
+        {
+          id: "ncaaw",
+          label: "NCAAW",
+          type: "basketball2",
+          url: "https://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball/scoreboard?groups=50&limit=300"
+        },
+        {
+          id: "mls",
+          label: "MLS",
+          type: "soccer",
+          url: "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard"
+        },
+        {
+          id: "epl",
+          label: "Premier League",
+          type: "soccer",
+          url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"
+        }
+      ]
+    };
+
+    // =========================================================================
+    // STATE & DOM REFERENCES
+    // =========================================================================
+    let activeFilter = "all";
+    let cachedGames = [];
+    let failedLeagues = [];
+    let pollTimer = null;
+
+    const filterBarEl = document.getElementById("filter-bar");
+    const warningsEl = document.getElementById("warnings");
+    const dashboardEl = document.getElementById("dashboard");
     const lastUpdatedEl = document.getElementById("last-updated");
+    const refreshBtn = document.getElementById("refresh-btn");
 
+    // =========================================================================
+    // HELPERS: RECORDS, CLOCKS, TEAM MATCHING
+    // =========================================================================
     function getRecordInfo(competitor) {
       const records = competitor.records || [];
       const overall = records.find((r) => r.type === "total" || r.name === "overall");
       const summary = overall?.summary || "";
-      const match = summary.match(/^(\d+)-(\d+)/);
-      if (!match) {
-        return { summary, winPct: 0.5 };
+
+      // Handles W-L, W-L-T (NFL), and W-D-L (Soccer)
+      const parts = summary.split("-").map(Number);
+      if (parts.length >= 2 && parts.every((n) => Number.isFinite(n))) {
+        const wins = parts[0];
+        const total = parts.reduce((sum, n) => sum + n, 0);
+        return {
+          summary,
+          winPct: total > 0 ? wins / total : 0.5
+        };
       }
-      const wins = Number(match[1]);
-      const losses = Number(match[2]);
-      const total = wins + losses;
-      return {
-        summary,
-        winPct: total > 0 ? wins / total : 0.5
-      };
+      return { summary, winPct: 0.5 };
     }
 
     function parseClockSeconds(displayClock) {
-      if (!displayClock) return 720;
-      const parts = String(displayClock).split(":");
+      if (!displayClock) return 0;
+      const cleaned = String(displayClock).replace(/[^\d:.]/g, "");
+      const parts = cleaned.split(":");
       if (parts.length === 2) {
         return Number(parts[0]) * 60 + Number(parts[1]);
       }
-      const secs = Number(displayClock);
-      return Number.isFinite(secs) ? secs : 720;
+      const secs = Number(cleaned);
+      return Number.isFinite(secs) ? secs : 0;
     }
 
-    // Higher score = shown higher on the page
-    function scoreGameInterest(event) {
-      const state = event.status?.type?.state; // "in" | "pre" | "post"
+    function findFavoriteTeamMatch(leagueId, competitors) {
+      for (let i = 0; i < CONFIG.favoriteTeams.length; i++) {
+        const fav = CONFIG.favoriteTeams[i];
+        if (fav.league !== leagueId) continue;
+
+        for (const comp of competitors) {
+          const names = [
+            comp.team?.displayName,
+            comp.team?.shortDisplayName,
+            comp.team?.location
+          ]
+            .filter(Boolean)
+            .map((s) => s.toLowerCase());
+
+          const isMatch = fav.match.some((needle) =>
+            names.some((n) => n === needle.toLowerCase() || n.includes(needle.toLowerCase()))
+          );
+
+          if (isMatch) {
+            return {
+              favIndex: i,
+              label: fav.label,
+              teamId: comp.team?.id
+            };
+          }
+        }
+      }
+      return null;
+    }
+
+    // =========================================================================
+    // EXCITEMENT & PRIORITY SCORING ENGINE
+    // =========================================================================
+    function evaluateGame(event, league, leagueIndex) {
       const comp = event.competitions?.[0];
       const competitors = comp?.competitors || [];
-      if (competitors.length < 2) return -9999;
+      const state = event.status?.type?.state || "pre"; // "in" | "pre" | "post"
 
-      const recA = getRecordInfo(competitors[0]);
-      const recB = getRecordInfo(competitors[1]);
-      const combinedWinPct = (recA.winPct + recB.winPct) / 2; // 0.0 to 1.0
-      const recordBonus = combinedWinPct * 35; // Up to +35 pts for top teams
+      const favMatch = findFavoriteTeamMatch(league.id, competitors);
+
+      // Sport preference tiebreaker (higher for leagues earlier in CONFIG.leagues)
+      const sportPreferenceBonus = (CONFIG.leagues.length - leagueIndex) * 2.5;
+
+      // Team quality bonus from records + AP/CFP rank if present
+      const recA = getRecordInfo(competitors[0] || {});
+      const recB = getRecordInfo(competitors[1] || {});
+      const rankA = competitors[0]?.curatedRank?.current;
+      const rankB = competitors[1]?.curatedRank?.current;
+      const rankBoostA = rankA && rankA <= 25 ? (26 - rankA) / 100 : 0;
+      const rankBoostB = rankB && rankB <= 25 ? (26 - rankB) / 100 : 0;
+
+      const avgQuality = Math.min(
+        1,
+        (recA.winPct + recB.winPct) / 2 + (rankBoostA + rankBoostB) / 2
+      );
+      const recordBonus = avgQuality * 35;
 
       if (state === "in") {
         const period = Number(event.status?.period || 1);
-        const secondsLeftInPeriod = parseClockSeconds(event.status?.displayClock);
-        const scoreA = Number(competitors[0].score || 0);
-        const scoreB = Number(competitors[1].score || 0);
+        const clockSecs = parseClockSeconds(event.status?.displayClock);
+        const scoreA = Number(competitors[0]?.score || 0);
+        const scoreB = Number(competitors[1]?.score || 0);
         const margin = Math.abs(scoreA - scoreB);
 
-        // Estimate total regulation seconds remaining (0 in OT)
-        const regPeriodsLeft = Math.max(0, 4 - period);
-        const totalSecondsLeft = period >= 5 ? 0 : regPeriodsLeft * 720 + secondsLeftInPeriod;
-
-        // Time urgency: ramps up sharply in the 4th quarter and OT
         let timeScore = 0;
-        if (period >= 5) {
-          timeScore = 65; // Overtime
-        } else if (period === 4) {
-          // 25 pts at start of 4th, up to 55 pts in the final seconds
-          timeScore = 25 + ((720 - Math.min(720, secondsLeftInPeriod)) / 720) * 30;
+        let closenessScore = 0;
+        let isCrunchTime = false;
+        let badgeText = "";
+
+        if (league.type === "soccer") {
+          // Soccer clock counts up in minutes (0-90+)
+          const minute = Math.floor(clockSecs / 60) || period * 45;
+          if (period >= 3 || minute >= 90) {
+            timeScore = 60;
+          } else if (minute >= 75) {
+            timeScore = 35 + ((minute - 75) / 15) * 20;
+          } else {
+            timeScore = (Math.min(75, minute) / 75) * 30;
+          }
+          closenessScore = margin === 0 ? 50 : margin === 1 ? 42 : margin === 2 ? 18 : 0;
+          isCrunchTime = (minute >= 75 || period >= 3) && margin <= 1;
+          badgeText = period >= 3 ? "Extra Time" : isCrunchTime ? "Late Drama" : "";
         } else {
-          // 0 to 20 pts across Q1-Q3
-          timeScore = ((2880 - totalSecondsLeft) / 2880) * 20;
+          // Basketball (4 quarters or 2 halves) & Football (4 quarters)
+          const regPeriods = league.type === "basketball2" ? 2 : 4;
+          const periodLength =
+            league.type === "basketball2" ? 1200 : league.type === "football" ? 900 : 720;
+          const isOT = period > regPeriods;
+          const isFinalRegPeriod = period === regPeriods;
+
+          if (isOT) {
+            timeScore = 65;
+          } else if (isFinalRegPeriod) {
+            const elapsedRatio = (periodLength - Math.min(periodLength, clockSecs)) / periodLength;
+            timeScore = 25 + elapsedRatio * 30;
+          } else {
+            const completedPeriods = Math.max(0, period - 1);
+            const totalRegSecs = regPeriods * periodLength;
+            const elapsedSecs =
+              completedPeriods * periodLength + (periodLength - Math.min(periodLength, clockSecs));
+            timeScore = (elapsedSecs / totalRegSecs) * 22;
+          }
+
+          if (league.type === "football") {
+            // 1-score game (<= 8 pts) vs 2-score game (<= 16 pts)
+            closenessScore =
+              margin <= 3 ? 50 : margin <= 8 ? 44 : margin <= 14 ? 24 : margin <= 17 ? 10 : 0;
+            isCrunchTime = (isFinalRegPeriod && clockSecs <= 300 && margin <= 8) || (isOT && margin <= 8);
+          } else {
+            // Basketball
+            closenessScore = Math.max(0, 50 - margin * 2.5);
+            isCrunchTime = (isFinalRegPeriod && clockSecs <= 300 && margin <= 10) || (isOT && margin <= 10);
+          }
+
+          badgeText = isOT ? "OT Thriller" : isCrunchTime ? "Crunch Time" : "";
         }
 
-        // Closeness: 50 pts if tied, tapering down as margin grows
-        const closenessScore = Math.max(0, 50 - margin * 2.5);
-
-        // Crunch-time multiplier when close late in the 4th or OT
-        const isCrunchTime = period >= 4 && secondsLeftInPeriod <= 300 && margin <= 10;
         const crunchBonus = isCrunchTime ? 30 : 0;
 
         return {
-          priority: 1000 + timeScore + closenessScore + crunchBonus + recordBonus,
-          isHot: isCrunchTime || (period >= 5 && margin <= 8),
-          badgeText: period >= 5 ? "OT Thriller" : isCrunchTime ? "Crunch Time" : ""
+          event,
+          league,
+          state,
+          favMatch,
+          isHot: isCrunchTime,
+          badgeText,
+          priority: 1000 + timeScore + closenessScore + crunchBonus + recordBonus + sportPreferenceBonus
         };
       }
 
       if (state === "pre") {
-        // Upcoming games sit below live games, sorted by team records then tipoff time
         const tipoff = Date.parse(event.date || "") || 0;
-        const timeTiebreaker = tipoff ? -tipoff / 1e11 : 0;
+        const timeTiebreaker = tipoff ? -tipoff / 1e12 : 0;
         return {
-          priority: 500 + recordBonus + timeTiebreaker,
+          event,
+          league,
+          state,
+          favMatch,
           isHot: false,
-          badgeText: ""
+          badgeText: "",
+          priority: 500 + recordBonus + sportPreferenceBonus + timeTiebreaker
         };
       }
 
-      // Finished ("post") games at the bottom, close finishes + good teams higher
+      // Finished ("post")
       const finalMargin = Math.abs(
-        Number(competitors[0].score || 0) - Number(competitors[1].score || 0)
+        Number(competitors[0]?.score || 0) - Number(competitors[1]?.score || 0)
       );
-      const closeFinishBonus = Math.max(0, 15 - finalMargin);
+      const closeLimit = league.type === "soccer" ? 1 : 12;
+      const closeFinishBonus = finalMargin <= closeLimit ? 12 : 0;
+
       return {
-        priority: 100 + recordBonus + closeFinishBonus,
+        event,
+        league,
+        state,
+        favMatch,
         isHot: false,
-        badgeText: ""
+        badgeText: "",
+        priority: 100 + recordBonus + sportPreferenceBonus + closeFinishBonus
       };
     }
 
-    function renderCompetitorRow(competitor, isFinal) {
+    // =========================================================================
+    // RENDERING
+    // =========================================================================
+    function renderFilters() {
+      filterBarEl.textContent = "";
+      const items = [{ id: "all", label: "All Sports" }, ...CONFIG.leagues];
+
+      for (const item of items) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `pill ${activeFilter === item.id ? "active" : ""}`;
+        btn.textContent = item.label;
+        btn.addEventListener("click", () => {
+          activeFilter = item.id;
+          renderFilters();
+          renderDashboard();
+        });
+        filterBarEl.appendChild(btn);
+      }
+    }
+
+    function renderCompetitorRow(competitor, isFinal, favTeamId) {
       const row = document.createElement("div");
       row.className = "team-row";
 
       const info = document.createElement("div");
       info.className = "team-info";
 
+      const rankNum = competitor.curatedRank?.current;
+      if (rankNum && rankNum <= 25) {
+        const rank = document.createElement("span");
+        rank.className = "rank";
+        rank.textContent = `#${rankNum}`;
+        info.appendChild(rank);
+      }
+
       const name = document.createElement("span");
       name.className = "team-name";
-      if (isFinal && competitor.winner) {
-        name.classList.add("winner");
-      }
+      if (isFinal && competitor.winner) name.classList.add("winner");
+      if (favTeamId && competitor.team?.id === favTeamId) name.classList.add("fav-team");
       name.textContent = competitor.team?.displayName || "TBD";
 
       const { summary } = getRecordInfo(competitor);
@@ -241,82 +550,75 @@
       return row;
     }
 
-    function renderGames(events) {
-      scoreboardEl.textContent = "";
+    function createGameCard(item) {
+      const { event, league, state, favMatch, isHot, badgeText } = item;
+      const comp = event.competitions?.[0];
+      const competitors = comp?.competitors || [];
+      if (competitors.length < 2) return null;
 
-      if (!events.length) {
-        const empty = document.createElement("p");
-        empty.className = "meta";
-        empty.textContent = "No NBA games scheduled today.";
-        scoreboardEl.appendChild(empty);
-        return;
+      // Soccer convention lists home first; US sports list away first
+      const first =
+        league.type === "soccer"
+          ? competitors.find((c) => c.homeAway === "home") || competitors[0]
+          : competitors.find((c) => c.homeAway === "away") || competitors[0];
+      const second =
+        league.type === "soccer"
+          ? competitors.find((c) => c.homeAway === "away") || competitors[1]
+          : competitors.find((c) => c.homeAway === "home") || competitors[1];
+
+      const isFinal = state === "post";
+
+      const card = document.createElement("article");
+      card.className = "game";
+      if (favMatch) card.classList.add("fav");
+      if (isHot) card.classList.add("hot");
+
+      const header = document.createElement("div");
+      header.className = "card-header";
+
+      const headerLeft = document.createElement("div");
+      headerLeft.className = "header-left";
+
+      const leagueTag = document.createElement("span");
+      leagueTag.className = "league-tag";
+      leagueTag.textContent = league.label;
+
+      const status = document.createElement("span");
+      status.className = `status ${state}`;
+      status.textContent =
+        event.status?.type?.shortDetail || event.status?.type?.description || "Scheduled";
+
+      headerLeft.append(leagueTag, status);
+      header.appendChild(headerLeft);
+
+      const badges = document.createElement("div");
+      badges.className = "badges";
+
+      if (favMatch) {
+        const favBadge = document.createElement("span");
+        favBadge.className = "badge fav";
+        favBadge.textContent = favMatch.label;
+        badges.appendChild(favBadge);
+      }
+      if (badgeText) {
+        const hotBadge = document.createElement("span");
+        hotBadge.className = "badge hot";
+        hotBadge.textContent = badgeText;
+        badges.appendChild(hotBadge);
+      }
+      if (badges.childNodes.length > 0) {
+        header.appendChild(badges);
       }
 
-      const ranked = events
-        .map((event) => ({ event, meta: scoreGameInterest(event) }))
-        .sort((a, b) => b.meta.priority - a.meta.priority);
-
-      for (const { event, meta } of ranked) {
-        const comp = event.competitions?.[0];
-        const competitors = comp?.competitors || [];
-        if (competitors.length < 2) continue;
-
-        const away = competitors.find((c) => c.homeAway === "away") || competitors[0];
-        const home = competitors.find((c) => c.homeAway === "home") || competitors[1];
-        const state = event.status?.type?.state;
-        const isFinal = state === "post";
-
-        const card = document.createElement("article");
-        card.className = meta.isHot ? "game hot" : "game";
-
-        const header = document.createElement("div");
-        header.className = "card-header";
-
-        const status = document.createElement("div");
-        status.className = `status ${state || ""}`;
-        status.textContent =
-          event.status?.type?.shortDetail || event.status?.type?.description || "Scheduled";
-
-        header.appendChild(status);
-
-        if (meta.badgeText) {
-          const badge = document.createElement("span");
-          badge.className = "badge";
-          badge.textContent = meta.badgeText;
-          header.appendChild(badge);
-        }
-
-        card.append(
-          header,
-          renderCompetitorRow(away, isFinal),
-          renderCompetitorRow(home, isFinal)
-        );
-        scoreboardEl.appendChild(card);
-      }
+      card.append(
+        header,
+        renderCompetitorRow(first, isFinal, favMatch?.teamId),
+        renderCompetitorRow(second, isFinal, favMatch?.teamId)
+      );
+      return card;
     }
 
-    async function refreshScoreboard() {
-      try {
-        const res = await fetch(`${ENDPOINT}?_=${Date.now()}`, { cache: "no-store" });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        renderGames(data.events || []);
-        lastUpdatedEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
-      } catch (err) {
-        scoreboardEl.textContent = "";
-        const errBox = document.createElement("div");
-        errBox.className = "error";
-        errBox.textContent = `Couldn't load NBA scores: ${err.message}`;
-        scoreboardEl.appendChild(errBox);
-        lastUpdatedEl.textContent = "Update failed";
-      }
-    }
-
-    refreshScoreboard();
-    setInterval(refreshScoreboard, POLL_INTERVAL_MS);
-  </script>
-</body>
-</html>
+    function renderDashboard() {
+      warningsEl.textContent = "";
+      if (failedLeagues.length >
 
