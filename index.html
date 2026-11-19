@@ -274,7 +274,8 @@
         {
           id: "ncaaw",
           label: "NCAAW",
-          type: "basketball2",
+          type: "basketball4",
+          periodLength: 600,
           rankedOrFavOnly: true,
           urls: [
             "https://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball/scoreboard",
@@ -315,7 +316,6 @@
       if (parts.length >= 2 && parts.every((n) => Number.isFinite(n))) {
         const total = parts.reduce((sum, n) => sum + n, 0);
         if (total <= 0) return { summary, winPct: 0.5 };
-        // NHL points percentage: (2*W + OTL) / (2*GP)
         if (leagueType === "hockey" && parts.length === 3) {
           const ptsPct = (parts[0] * 2 + parts[2]) / (total * 2);
           return { summary, winPct: ptsPct };
@@ -365,7 +365,7 @@
         return Number.isFinite(rank) && rank >= 1 && rank <= 25;
       });
     }
-        function evaluateGame(event, league, leagueIndex) {
+    function evaluateGame(event, league, leagueIndex) {
       const comp = event.competitions?.[0];
       const competitors = comp?.competitors || [];
       const state = event.status?.type?.state || "pre";
@@ -427,7 +427,8 @@
         } else {
           const regPeriods = league.type === "basketball2" ? 2 : 4;
           const periodLength =
-            league.type === "basketball2" ? 1200 : league.type === "football" ? 900 : 720;
+            league.periodLength ??
+            (league.type === "basketball2" ? 1200 : league.type === "football" ? 900 : 720);
           const isOT = period > regPeriods;
           const isFinalRegPeriod = period === regPeriods;
 
