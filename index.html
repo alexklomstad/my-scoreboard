@@ -339,12 +339,10 @@
     function parseSoccerMinute(displayClock, period) {
       if (displayClock) {
         const str = String(displayClock).trim();
-        // Handle stoppage/injury time like "45+2'" or "90+4"
         const stoppageMatch = str.match(/^(\d+)\s*\+\s*(\d+)/);
         if (stoppageMatch) {
           return Number(stoppageMatch[1]) + Number(stoppageMatch[2]);
         }
-        // Handle "MM:SS" if a feed provides minutes:seconds
         if (str.includes(":")) {
           const cleaned = str.replace(/[^\d:]/g, "");
           const [mins, secs] = cleaned.split(":").map(Number);
@@ -352,13 +350,43 @@
             return mins + (Number.isFinite(secs) && secs >= 30 ? 1 : 0);
           }
         }
-        // Standard match minute like "47'" or "78'"
-        const minuteNum = Number(str.replace(/[^\d.]/g, ""));
-        if (Number.isFinite(minuteNum) && str.replace(/[^\d.]/g, "") !== "") {
-          return Math.floor(minuteNum);
+        const digitsOnly = str.replace(/[^\d.]/g, "");
+        if (digitsOnly !== "") {
+          const minuteNum = Number(digitsOnly);
+          if (Number.isFinite(minuteNum)) {
+            return Math.floor(minuteNum);
+          }
         }
       }
       return (Number(period) || 1) * 45;
+    }
+
+    function formatGameStatus(event, state) {
+      const shortDetail = event.status?.type?.shortDetail?.trim();
+      const description = event.status?.type?.description?.trim();
+
+      if (state === "pre") {
+        if (shortDetail && !/^scheduled$/i.test(shortDetail)) {
+          return shortDetail;
+        }
+        if (event.date) {
+          const kickoff = new Date(event.date);
+          if (Number.isFinite(kickoff.getTime())) {
+            const timeStr = kickoff.toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit"
+            });
+            const now = new Date();
+            if (kickoff.toDateString() !== now.toDateString()) {
+              const dayStr = kickoff.toLocaleDateString([], { weekday: "short" });
+              return `${dayStr} ${timeStr}`;
+            }
+            return timeStr;
+          }
+        }
+      }
+
+      return shortDetail || description || "Scheduled";
     }
 
     function findFavoriteTeamMatch(leagueId, competitors) {
@@ -618,8 +646,7 @@
 
       const status = document.createElement("span");
       status.className = `status ${state}`;
-      status.textContent =
-        event.status?.type?.shortDetail || event.status?.type?.description || "Scheduled";
+      status.textContent = formatGameStatus(event, state);
 
       headerLeft.append(leagueTag, status);
       header.appendChild(headerLeft);
