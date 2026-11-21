@@ -336,6 +336,31 @@
       return Number.isFinite(secs) ? secs : 0;
     }
 
+    function parseSoccerMinute(displayClock, period) {
+      if (displayClock) {
+        const str = String(displayClock).trim();
+        // Handle stoppage/injury time like "45+2'" or "90+4"
+        const stoppageMatch = str.match(/^(\d+)\s*\+\s*(\d+)/);
+        if (stoppageMatch) {
+          return Number(stoppageMatch[1]) + Number(stoppageMatch[2]);
+        }
+        // Handle "MM:SS" if a feed provides minutes:seconds
+        if (str.includes(":")) {
+          const cleaned = str.replace(/[^\d:]/g, "");
+          const [mins, secs] = cleaned.split(":").map(Number);
+          if (Number.isFinite(mins)) {
+            return mins + (Number.isFinite(secs) && secs >= 30 ? 1 : 0);
+          }
+        }
+        // Standard match minute like "47'" or "78'"
+        const minuteNum = Number(str.replace(/[^\d.]/g, ""));
+        if (Number.isFinite(minuteNum) && str.replace(/[^\d.]/g, "") !== "") {
+          return Math.floor(minuteNum);
+        }
+      }
+      return (Number(period) || 1) * 45;
+    }
+
     function findFavoriteTeamMatch(leagueId, competitors) {
       for (let i = 0; i < CONFIG.favoriteTeams.length; i++) {
         const fav = CONFIG.favoriteTeams[i];
@@ -399,7 +424,7 @@
         let badgeText = "";
 
         if (league.type === "soccer") {
-          const minute = Math.floor(clockSecs / 60) || period * 45;
+          const minute = parseSoccerMinute(event.status?.displayClock, period);
           if (period >= 3 || minute >= 90) {
             timeScore = 60;
           } else if (minute >= 75) {
