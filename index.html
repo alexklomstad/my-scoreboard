@@ -452,6 +452,17 @@
         let badgeText = "";
 
         if (league.type === "soccer") {
+          const statusText = [
+            event.status?.type?.shortDetail,
+            event.status?.type?.detail,
+            event.status?.type?.description,
+            event.status?.type?.name
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const isHalftime =
+            /\bHT\b/i.test(statusText) || /half[\s-]?time/i.test(statusText);
+
           const minute = parseSoccerMinute(event.status?.displayClock, period);
           if (period >= 3 || minute >= 90) {
             timeScore = 60;
@@ -461,7 +472,7 @@
             timeScore = (Math.min(75, minute) / 75) * 30;
           }
           closenessScore = margin === 0 ? 50 : margin === 1 ? 42 : margin === 2 ? 18 : 0;
-          isCrunchTime = (minute >= 75 || period >= 3) && margin <= 1;
+          isCrunchTime = !isHalftime && (minute >= 75 || period >= 3) && margin <= 1;
           badgeText = period >= 3 ? "Extra Time" : isCrunchTime ? "Late Drama" : "";
         } else if (league.type === "hockey") {
           const isOT = period > 3;
