@@ -466,13 +466,13 @@
           const minute = parseSoccerMinute(event.status?.displayClock, period);
           if (period >= 3 || minute >= 90) {
             timeScore = 60;
-          } else if (minute >= 75) {
-            timeScore = 35 + ((minute - 75) / 15) * 20;
+          } else if (minute > 80) {
+            timeScore = 40 + ((minute - 80) / 15) * 15;
           } else {
-            timeScore = (Math.min(75, minute) / 75) * 30;
+            timeScore = (Math.min(80, minute) / 80) * 35;
           }
           closenessScore = margin === 0 ? 50 : margin === 1 ? 42 : margin === 2 ? 18 : 0;
-          isCrunchTime = !isHalftime && (minute >= 75 || period >= 3) && margin <= 1;
+          isCrunchTime = !isHalftime && (minute > 80 || period >= 3) && margin <= 1;
           badgeText = period >= 3 ? "Extra Time" : isCrunchTime ? "Late Drama" : "";
         } else if (league.type === "hockey") {
           const isOT = period > 3;
