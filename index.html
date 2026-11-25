@@ -325,6 +325,36 @@
       return { summary, winPct: 0.5 };
     }
 
+    function getNumericScore(competitor) {
+      const raw = competitor?.score;
+      if (typeof raw === "object" && raw !== null) {
+        return Number(raw.value ?? raw.displayValue ?? 0) || 0;
+      }
+      return Number(raw ?? 0) || 0;
+    }
+
+    function resolveDisplayScore(competitor, state) {
+      const raw = competitor?.score;
+      if (typeof raw === "object" && raw !== null) {
+        const val = raw.displayValue ?? raw.value;
+        if (val !== undefined && val !== null && String(val).trim() !== "") {
+          return String(val);
+        }
+      } else if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+        return String(raw);
+      }
+
+      if (Array.isArray(competitor?.linescores) && competitor.linescores.length > 0 && state !== "pre") {
+        const sum = competitor.linescores.reduce((acc, ls) => {
+          const v = typeof ls === "object" ? Number(ls.value ?? ls.displayValue ?? 0) : Number(ls);
+          return acc + (Number.isFinite(v) ? v : 0);
+        }, 0);
+        return String(sum);
+      }
+
+      return state === "pre" ? "-" : "0";
+    }
+
     function parseClockSeconds(displayClock) {
       if (!displayClock) return 0;
       const cleaned = String(displayClock).replace(/[^\d:.]/g, "");
@@ -417,14 +447,6 @@
         const rank = c.curatedRank?.current;
         return Number.isFinite(rank) && rank >= 1 && rank <= 25;
       });
-    }
-
-    function getNumericScore(competitor) {
-      const raw = competitor?.score;
-      if (typeof raw === "object" && raw !== null) {
-        return Number(raw.value ?? raw.displayValue ?? 0) || 0;
-      }
-      return Number(raw ?? 0) || 0;
     }
 
     function evaluateGame(event, league, leagueIndex) {
@@ -591,7 +613,8 @@
       }
     }
 
-    function renderCompetitorRow(competitor, isFinal, favTeamId, leagueType) {
+    function renderCompetitorRow(competitor, state, favTeamId, leagueType) {
+      const isFinal = state === "post";
       const row = document.createElement("div");
       row.className = "team-row";
 
@@ -621,11 +644,7 @@
 
       const score = document.createElement("span");
       score.className = "score";
-      const rawScore = competitor.score;
-      score.textContent =
-        typeof rawScore === "object" && rawScore !== null
-          ? rawScore.displayValue ?? "-"
-          : rawScore ?? "-";
+      score.textContent = resolveDisplayScore(competitor, state);
 
       row.append(info, score);
       return row;
@@ -645,8 +664,6 @@
         league.type === "soccer"
           ? competitors.find((c) => c.homeAway === "away") || competitors[1]
           : competitors.find((c) => c.homeAway === "home") || competitors[1];
-
-      const isFinal = state === "post";
 
       const card = document.createElement("article");
       card.className = "game";
@@ -691,8 +708,8 @@
 
       card.append(
         header,
-        renderCompetitorRow(first, isFinal, favMatch?.teamId, league.type),
-        renderCompetitorRow(second, isFinal, favMatch?.teamId, league.type)
+        renderCompetitorRow(first, state, favMatch?.teamId, league.type),
+        renderCompetitorRow(second, state, favMatch?.teamId, league.type)
       );
       return card;
     }
@@ -832,14 +849,36 @@
         const summary = await res.json();
         const headerComp = summary?.header?.competitions?.[0];
         if (headerComp) {
+          const mergedComps = (headerComp.competitors || []).map((hc) => {
+            const existingComp = competitors.find(
+              (c) => String(c.team?.id) === String(hc.team?.id)
+            );
+            const hasHeaderScore =
+              hc.score !== undefined &&
+              hc.score !== null &&
+              (typeof hc.score === "object"
+                ? hc.score.displayValue ?? hc.score.value
+                : String(hc.score).trim()) !== "";
+            return {
+              ...existingComp,
+              ...hc,
+              score: hasHeaderScore ? hc.score : existingComp?.score ?? 0
+            };
+          });
+
           return {
             ...ev,
             status: headerComp.status || ev.status,
-            competitions: [headerComp]
+            competitions: [
+              {
+                ...headerComp,
+                competitors: mergedComps.length ? mergedComps : headerComp.competitors
+              }
+            ]
           };
         }
       } catch (_) {
-        // Fall back to existing event payload if summary fetch fails
+        // Keep existing event if summary fetch fails
       }
       return ev;
     }
