@@ -419,6 +419,14 @@
       });
     }
 
+    function getNumericScore(competitor) {
+      const raw = competitor?.score;
+      if (typeof raw === "object" && raw !== null) {
+        return Number(raw.value ?? raw.displayValue ?? 0) || 0;
+      }
+      return Number(raw ?? 0) || 0;
+    }
+
     function evaluateGame(event, league, leagueIndex) {
       const comp = event.competitions?.[0];
       const competitors = comp?.competitors || [];
@@ -442,8 +450,8 @@
       if (state === "in") {
         const period = Number(event.status?.period || 1);
         const clockSecs = parseClockSeconds(event.status?.displayClock);
-        const scoreA = Number(competitors[0]?.score || 0);
-        const scoreB = Number(competitors[1]?.score || 0);
+        const scoreA = getNumericScore(competitors[0]);
+        const scoreB = getNumericScore(competitors[1]);
         const margin = Math.abs(scoreA - scoreB);
 
         let timeScore = 0;
@@ -549,7 +557,7 @@
       }
 
       const finalMargin = Math.abs(
-        Number(competitors[0]?.score || 0) - Number(competitors[1]?.score || 0)
+        getNumericScore(competitors[0]) - getNumericScore(competitors[1])
       );
       const closeLimit = league.type === "soccer" || league.type === "hockey" ? 1 : 12;
       const closeFinishBonus = finalMargin <= closeLimit ? 12 : 0;
@@ -803,6 +811,39 @@
       return baseUrls;
     }
 
+    async function enrichLiveFavoriteEvent(league, ev) {
+      const state = ev.status?.type?.state;
+      const competitors = ev.competitions?.[0]?.competitors || [];
+      const favMatch = findFavoriteTeamMatch(league.id, competitors);
+      if (!favMatch || state !== "in") return ev;
+
+      const sportPath =
+        league.id === "ncaam"
+          ? "basketball/mens-college-basketball"
+          : league.id === "ncaaw"
+          ? "basketball/womens-college-basketball"
+          : "football/college-football";
+
+      try {
+        const res = await fetch(
+          `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/summary?event=${ev.id}`
+        );
+        if (!res.ok) return ev;
+        const summary = await res.json();
+        const headerComp = summary?.header?.competitions?.[0];
+        if (headerComp) {
+          return {
+            ...ev,
+            status: headerComp.status || ev.status,
+            competitions: [headerComp]
+          };
+        }
+      } catch (_) {
+        // Fall back to existing event payload if summary fetch fails
+      }
+      return ev;
+    }
+
     async function fetchLeague(league, leagueIndex) {
       try {
         const urls = buildLeagueUrls(league);
@@ -823,7 +864,13 @@
           for (const ev of extractEventsFromPayload(result.value)) {
             if (ev?.id) {
               const existing = eventMap.get(ev.id);
-              if (!existing || ev.status?.type?.state === "in") {
+              const existingHasScore = existing?.competitions?.[0]?.competitors?.some(
+                (c) => c.score !== undefined && c.score !== null && c.score !== ""
+              );
+              const newHasScore = ev?.competitions?.[0]?.competitors?.some(
+                (c) => c.score !== undefined && c.score !== null && c.score !== ""
+              );
+              if (!existing || (ev.status?.type?.state === "in" && (!existingHasScore || newHasScore))) {
                 eventMap.set(ev.id, ev);
               }
             }
@@ -835,7 +882,10 @@
         }
 
         const evaluated = [];
-        for (const ev of eventMap.values()) {
+        for (let ev of eventMap.values()) {
+          if (league.rankedOrFavOnly) {
+            ev = await enrichLiveFavoriteEvent(league, ev);
+          }
           const item = evaluateGame(ev, league, leagueIndex);
           if (league.rankedOrFavOnly) {
             const competitors = ev.competitions?.[0]?.competitors || [];
