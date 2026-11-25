@@ -790,24 +790,42 @@
       }
     }
 
-    function extractEventsFromPayload(data) {
-      if (Array.isArray(data?.events)) {
-        const now = Date.now();
-        return data.events.filter((ev) => {
-          const state = ev.status?.type?.state;
-          if (state === "in") return true;
-          const t = Date.parse(ev.date || "");
-          return Number.isFinite(t) && Math.abs(t - now) <= 36 * 3600 * 1000;
+    function hydrateScheduleRecords(teamData, events) {
+      const teamId = teamData?.id;
+      const teamRecords = teamData?.record?.items;
+      if (!teamId || !Array.isArray(teamRecords) || !teamRecords.length) {
+        return events;
+      }
+      return events.map((ev) => {
+        const comp = ev.competitions?.[0];
+        if (!comp?.competitors) return ev;
+        const updatedCompetitors = comp.competitors.map((c) => {
+          if (String(c.team?.id) === String(teamId) && (!c.records || !c.records.length)) {
+            return { ...c, records: teamRecords };
+          }
+          return c;
         });
+        return {
+          ...ev,
+          competitions: [{ ...comp, competitors: updatedCompetitors }]
+        };
+      });
+    }
+
+    function extractEventsFromPayload(data) {
+      const now = Date.now();
+      const isWithinWindow = (ev) => {
+        const state = ev.status?.type?.state;
+        if (state === "in") return true;
+        const t = Date.parse(ev.date || "");
+        return Number.isFinite(t) && Math.abs(t - now) <= 36 * 3600 * 1000;
+      };
+
+      if (Array.isArray(data?.events)) {
+        return hydrateScheduleRecords(data.team, data.events.filter(isWithinWindow));
       }
       if (Array.isArray(data?.team?.nextEvent)) {
-        const now = Date.now();
-        return data.team.nextEvent.filter((ev) => {
-          const state = ev.status?.type?.state;
-          if (state === "in") return true;
-          const t = Date.parse(ev.date || "");
-          return Number.isFinite(t) && Math.abs(t - now) <= 36 * 3600 * 1000;
-        });
+        return hydrateScheduleRecords(data.team, data.team.nextEvent.filter(isWithinWindow));
       }
       return [];
     }
