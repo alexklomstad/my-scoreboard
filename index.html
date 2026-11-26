@@ -796,6 +796,31 @@
       }
     }
 
+    function normalizeEventStatus(rawStatus) {
+      if (!rawStatus) return rawStatus;
+      const type = rawStatus.type || {};
+      const isCompleted =
+        type.completed === true ||
+        type.state === "post" ||
+        /final/i.test(type.name || "") ||
+        /final/i.test(type.description || "");
+      if (isCompleted && type.state !== "post") {
+        return {
+          ...rawStatus,
+          type: {
+            ...type,
+            state: "post",
+            completed: true,
+            shortDetail:
+              type.shortDetail && !/^\d{1,2}\/\d{1,2}/.test(type.shortDetail)
+                ? type.shortDetail
+                : "Final"
+          }
+        };
+      }
+      return rawStatus;
+    }
+
     function hydrateScheduleRecords(teamData, events) {
       const teamId = teamData?.id;
       const teamRecords = teamData?.record?.items;
@@ -891,11 +916,15 @@
             return fallbackEv || null;
           }
 
+          const resolvedStatus = normalizeEventStatus(
+            headerComp.status || summary?.header?.status || fallbackEv?.status
+          );
+
           return {
             ...(fallbackEv || {}),
             id: String(summary?.header?.id || eventId),
             date: headerComp.date || fallbackEv?.date || "",
-            status: headerComp.status || fallbackEv?.status,
+            status: resolvedStatus,
             competitions: [headerComp]
           };
         })
@@ -909,13 +938,25 @@
     function upsertEventIntoMap(eventMap, ev) {
       if (!ev?.id) return;
       const existing = eventMap.get(ev.id);
-      const existingHasScore = existing?.competitions?.[0]?.competitors?.some(
+      if (!existing) {
+        eventMap.set(ev.id, ev);
+        return;
+      }
+
+      const existingState = existing.status?.type?.state;
+      const newState = ev.status?.type?.state;
+      const existingHasScore = existing.competitions?.[0]?.competitors?.some(
         (c) => c.score !== undefined && c.score !== null && c.score !== ""
       );
-      const newHasScore = ev?.competitions?.[0]?.competitors?.some(
+      const newHasScore = ev.competitions?.[0]?.competitors?.some(
         (c) => c.score !== undefined && c.score !== null && c.score !== ""
       );
-      if (!existing || (ev.status?.type?.state === "in" && (!existingHasScore || newHasScore))) {
+
+      if (
+        (existingState === "pre" && (newState === "in" || newState === "post")) ||
+        (newState === "post" && existingState !== "post") ||
+        (newState === "in" && (!existingHasScore || newHasScore))
+      ) {
         eventMap.set(ev.id, ev);
       }
     }
