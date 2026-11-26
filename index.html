@@ -297,6 +297,12 @@
       ]
     };
 
+    const COLLEGE_SPORT_PATHS = {
+      ncaam: "basketball/mens-college-basketball",
+      ncaaf: "football/college-football",
+      ncaaw: "basketball/womens-college-basketball"
+    };
+
     let activeFilter = "all";
     const gamesByLeague = new Map();
     const failedLeagues = new Set();
@@ -812,6 +818,14 @@
       });
     }
 
+    function isCandidateScheduleEvent(ev, now = Date.now()) {
+      if (!ev?.id) return false;
+      const state = ev.status?.type?.state;
+      if (state === "in") return true;
+      const eventMs = Date.parse(ev.date || "");
+      return Number.isFinite(eventMs) && Math.abs(eventMs - now) <= 36 * 3600 * 1000;
+    }
+
     function extractEventsFromPayload(data) {
       const now = Date.now();
       const isWithinWindow = (ev) => {
@@ -832,73 +846,78 @@
 
     function buildLeagueUrls(league) {
       const baseUrls = [...league.urls];
-      if (league.rankedOrFavOnly) {
-        const sportPath =
-          league.id === "ncaam"
-            ? "basketball/mens-college-basketball"
-            : league.id === "ncaaw"
-            ? "basketball/womens-college-basketball"
-            : "football/college-football";
+      if (league.rankedOrFavOnly && COLLEGE_SPORT_PATHS[league.id]) {
         baseUrls.push(
-          `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/teams/12/schedule`
+          `https://site.api.espn.com/apis/site/v2/sports/${COLLEGE_SPORT_PATHS[league.id]}/teams/12/schedule`
         );
       }
       return baseUrls;
     }
 
-    async function enrichLiveFavoriteEvent(league, ev) {
-      const state = ev.status?.type?.state;
-      const competitors = ev.competitions?.[0]?.competitors || [];
-      const favMatch = findFavoriteTeamMatch(league.id, competitors);
-      if (!favMatch || state !== "in") return ev;
+    async function fetchArizonaEventsFromSchedule(leagueId) {
+      const sportPath = COLLEGE_SPORT_PATHS[leagueId];
+      if (!sportPath) return [];
 
-      const sportPath =
-        league.id === "ncaam"
-          ? "basketball/mens-college-basketball"
-          : league.id === "ncaaw"
-          ? "basketball/womens-college-basketball"
-          : "football/college-football";
+      const scheduleUrl = `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/teams/12/schedule`;
+      const summaryBase = `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/summary?event=`;
 
-      try {
-        const res = await fetch(
-          `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/summary?event=${ev.id}`
-        );
-        if (!res.ok) return ev;
-        const summary = await res.json();
-        const headerComp = summary?.header?.competitions?.[0];
-        if (headerComp) {
-          const mergedComps = (headerComp.competitors || []).map((hc) => {
-            const existingComp = competitors.find(
-              (c) => String(c.team?.id) === String(hc.team?.id)
-            );
-            const hasHeaderScore =
-              hc.score !== undefined &&
-              hc.score !== null &&
-              (typeof hc.score === "object"
-                ? hc.score.displayValue ?? hc.score.value
-                : String(hc.score).trim()) !== "";
-            return {
-              ...existingComp,
-              ...hc,
-              score: hasHeaderScore ? hc.score : existingComp?.score ?? 0
-            };
-          });
+      const res = await fetch(scheduleUrl);
+      if (!res.ok) {
+        throw new Error(`Schedule HTTP ${res.status} for ${leagueId}`);
+      }
+
+      const scheduleData = await res.json();
+      const rawEvents = Array.isArray(scheduleData?.events) ? scheduleData.events : [];
+      const hydrated = hydrateScheduleRecords(scheduleData?.team, rawEvents);
+      const candidateIds = hydrated
+        .filter((ev) => isCandidateScheduleEvent(ev))
+        .map((ev) => String(ev.id));
+
+      if (!candidateIds.length) {
+        return [];
+      }
+
+      const summaryResults = await Promise.allSettled(
+        candidateIds.map(async (eventId) => {
+          const sumRes = await fetch(`${summaryBase}${encodeURIComponent(eventId)}`);
+          if (!sumRes.ok) {
+            throw new Error(`Summary HTTP ${sumRes.status} for ${eventId}`);
+          }
+          const summary = await sumRes.json();
+          const headerComp = summary?.header?.competitions?.[0];
+          const fallbackEv = hydrated.find((e) => String(e.id) === eventId);
+
+          if (!headerComp) {
+            return fallbackEv || null;
+          }
 
           return {
-            ...ev,
-            status: headerComp.status || ev.status,
-            competitions: [
-              {
-                ...headerComp,
-                competitors: mergedComps.length ? mergedComps : headerComp.competitors
-              }
-            ]
+            ...(fallbackEv || {}),
+            id: String(summary?.header?.id || eventId),
+            date: headerComp.date || fallbackEv?.date || "",
+            status: headerComp.status || fallbackEv?.status,
+            competitions: [headerComp]
           };
-        }
-      } catch (_) {
-        // Keep existing event if summary fetch fails
+        })
+      );
+
+      return summaryResults
+        .filter((r) => r.status === "fulfilled" && r.value)
+        .map((r) => r.value);
+    }
+
+    function upsertEventIntoMap(eventMap, ev) {
+      if (!ev?.id) return;
+      const existing = eventMap.get(ev.id);
+      const existingHasScore = existing?.competitions?.[0]?.competitors?.some(
+        (c) => c.score !== undefined && c.score !== null && c.score !== ""
+      );
+      const newHasScore = ev?.competitions?.[0]?.competitors?.some(
+        (c) => c.score !== undefined && c.score !== null && c.score !== ""
+      );
+      if (!existing || (ev.status?.type?.state === "in" && (!existingHasScore || newHasScore))) {
+        eventMap.set(ev.id, ev);
       }
-      return ev;
     }
 
     async function fetchLeague(league, leagueIndex) {
@@ -919,18 +938,21 @@
           if (result.status !== "fulfilled") continue;
           anySuccess = true;
           for (const ev of extractEventsFromPayload(result.value)) {
-            if (ev?.id) {
-              const existing = eventMap.get(ev.id);
-              const existingHasScore = existing?.competitions?.[0]?.competitors?.some(
-                (c) => c.score !== undefined && c.score !== null && c.score !== ""
-              );
-              const newHasScore = ev?.competitions?.[0]?.competitors?.some(
-                (c) => c.score !== undefined && c.score !== null && c.score !== ""
-              );
-              if (!existing || (ev.status?.type?.state === "in" && (!existingHasScore || newHasScore))) {
-                eventMap.set(ev.id, ev);
+            upsertEventIntoMap(eventMap, ev);
+          }
+        }
+
+        if (league.rankedOrFavOnly && COLLEGE_SPORT_PATHS[league.id]) {
+          try {
+            const enrichedEvents = await fetchArizonaEventsFromSchedule(league.id);
+            if (enrichedEvents.length > 0) {
+              anySuccess = true;
+              for (const ev of enrichedEvents) {
+                upsertEventIntoMap(eventMap, ev);
               }
             }
+          } catch (_) {
+            // Keep scoreboard/schedule results if schedule->summary lookup fails
           }
         }
 
@@ -939,10 +961,7 @@
         }
 
         const evaluated = [];
-        for (let ev of eventMap.values()) {
-          if (league.rankedOrFavOnly) {
-            ev = await enrichLiveFavoriteEvent(league, ev);
-          }
+        for (const ev of eventMap.values()) {
           const item = evaluateGame(ev, league, leagueIndex);
           if (league.rankedOrFavOnly) {
             const competitors = ev.competitions?.[0]?.competitors || [];
